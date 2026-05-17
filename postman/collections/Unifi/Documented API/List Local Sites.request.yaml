@@ -1,4 +1,0 @@
-$kind: http-request
-url: https://192.168.1.1/proxy/network/integration/v1/sites
-method: GET
-order: 1779042650585

@@ -1,4 +1,0 @@
-$kind: http-request
-url: https://192.168.1.1/proxy/network/api/s/default/stat/device
-method: GET
-order: 2644767362905161

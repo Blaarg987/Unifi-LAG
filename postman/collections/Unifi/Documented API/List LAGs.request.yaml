@@ -1,4 +1,0 @@
-$kind: http-request
-url: https://192.168.1.1/proxy/network/integration/v1/sites/{{siteid}}/switching/lags
-method: GET
-order: 3261779537772759
