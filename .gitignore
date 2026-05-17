@@ -1,4 +1,14 @@
+
+# Postman
+*.postman_environment.json
+postman/environment.local.json
+
+# Raw API responses (unsanitized)
+tests/fixtures/raw/
+*.har
+
+# Standard
 .env
 .env.local
-*.env
-!.env.example
+__pycache__/
+*.pyc
