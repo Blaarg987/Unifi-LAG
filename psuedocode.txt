@@ -1,0 +1,17 @@
+For each LAG defined on the switch:
+  Pull switch view: partner_system_id, member ports, lacp_state, counters
+  Pull Linux view: bond mode, partner mac, slave list, port states
+  
+  Correlate:
+    - Do partner MACs match between sides?    
+    - Does switch's service_mac_table match Linux slave MACs?
+    - Is every switch member also a Linux slave?
+    - Is every Linux slave reported active by switch lacp_state?
+    - Are link speeds consistent?
+    - Has flap count changed since last poll?
+    - Are there errors/drops in either direction?
+  
+  Emit:
+    - Overall LAG health (HEALTHY / DEGRADED / DOWN)
+    - Per-member status
+    - Specific mismatches with explanations

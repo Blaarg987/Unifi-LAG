@@ -1,0 +1,13 @@
+$kind: http-request
+url: https://192.168.1.1/api/auth/login
+method: POST
+body:
+  type: json
+  content: "{\r
+
+    \    \"username\": \"{{vault:username}}\",\r
+
+    \    \"password\": \"{{vault:password}}\"\r
+
+    }"
+order: 1779038160646

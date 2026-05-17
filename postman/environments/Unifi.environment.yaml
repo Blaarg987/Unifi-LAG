@@ -1,0 +1,4 @@
+name: Unifi
+values:
+  - key: UNIFI_API_KEY
+    value: ''

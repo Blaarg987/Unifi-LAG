@@ -1,0 +1,8 @@
+workspace:
+  id: 26d03179-598a-4416-80d3-efc81638d8bb
+localResources:
+  collections:
+    - ../postman/collections/Unifi
+cloudResources:
+  collections:
+    ../postman/collections/Unifi: 51391907-850330f8-1302-49af-b181-35c9827e72a3

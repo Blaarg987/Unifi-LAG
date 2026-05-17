@@ -1,0 +1,10 @@
+$kind: collection
+name: Unifi
+variables:
+  siteid: ""
+  lagid: ""
+auth:
+  type: apikey
+  credentials:
+    value: "{{vault:X-API-KEY}}"
+    key: X-API-KEY
