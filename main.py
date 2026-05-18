@@ -4,14 +4,12 @@ import requests
 import urllib3
 from dotenv import load_dotenv
 
-load_dotenv(interpolate=False, override=True)
-
-# Suppress warnings while testing against self-signed local controller certs.
+load_dotenv()
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-base_url = (os.getenv("unifi_url") or "").rstrip("/")
-username = os.getenv("unifi_username") or os.getenv("username")
-password = os.getenv("unifi_password") or os.getenv("password")
+base_url = os.getenv("unifi_url")
+username = os.getenv("unifi_username")
+password = os.getenv("unifi_password") 
 
 
 auth = requests.post(
