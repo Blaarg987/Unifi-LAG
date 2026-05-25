@@ -12,3 +12,4 @@ tests/fixtures/raw/
 .env.local
 __pycache__/
 *.pyc
+.venv
