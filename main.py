@@ -191,32 +191,121 @@ def extract_proxmox_bonds(proxmox_data):
     return proxmox_bonds
 
 
+def get_matching_bond(unifi_lag, proxmox_bonds, used_bonds):
+    lag_macs = set(unifi_lag["partner_macs"])
+    available_bonds = [bond for bond in proxmox_bonds if bond["iface"] not in used_bonds]
+
+    for bond in available_bonds:
+        if lag_macs == set(bond["slave_macs"]):
+            return bond
+
+    ranked_bonds = sorted(
+        available_bonds,
+        key=lambda bond: len(lag_macs & set(bond["slave_macs"])),
+        reverse=True,
+    )
+
+    if ranked_bonds and lag_macs & set(ranked_bonds[0]["slave_macs"]):
+        return ranked_bonds[0]
+
+    return None
+
+
+def get_health_checks(unifi_lag, proxmox_bond):
+    no_errors = (
+        unifi_lag["rx_errors"] == 0
+        and unifi_lag["tx_errors"] == 0
+        and unifi_lag["rx_dropped"] == 0
+        and unifi_lag["tx_dropped"] == 0
+        and all(
+            member["rx_errors"] == 0
+            and member["tx_errors"] == 0
+            and member["rx_dropped"] == 0
+            and member["tx_dropped"] == 0
+            for member in unifi_lag["members"]
+        )
+    )
+
+    return [
+        ("MACs match on both sides", set(unifi_lag["partner_macs"]) == set(proxmox_bond["slave_macs"])),
+        ("All members active", all(member["active"] for member in unifi_lag["members"])),
+        ("Consistent speeds across members", len(set(member["speed"] for member in unifi_lag["members"])) == 1),
+        ("LAG is up on both sides", unifi_lag["up"] is True and proxmox_bond["active"] == 1),
+        ("Bond mode is 802.3ad", proxmox_bond["mode"] == "802.3ad"),
+        ("No errors or drops detected", no_errors),
+    ]
+
+
+def get_health_findings(unifi_lag, proxmox_bond):
+    findings = []
+
+    if set(unifi_lag["partner_macs"]) != set(proxmox_bond["slave_macs"]):
+        findings.append("Partner MACs do not fully match the Proxmox bond slaves.")
+
+    inactive_members = [member["port"] for member in unifi_lag["members"] if not member["active"]]
+    if inactive_members:
+        findings.append(f"Inactive switch members detected: {', '.join(map(str, inactive_members))}.")
+
+    member_speeds = {member["speed"] for member in unifi_lag["members"]}
+    if len(member_speeds) > 1:
+        findings.append("Member link speeds are inconsistent across the LAG.")
+
+    if not unifi_lag["up"] or proxmox_bond["active"] != 1:
+        findings.append("The LAG is not up on both the switch and Proxmox.")
+
+    if proxmox_bond["mode"] != "802.3ad":
+        findings.append(f"Bond mode is {proxmox_bond['mode']} instead of 802.3ad.")
+
+    noisy_members = [
+        str(member["port"])
+        for member in unifi_lag["members"]
+        if any(
+            member[counter] > 0
+            for counter in ("rx_errors", "tx_errors", "rx_dropped", "tx_dropped")
+        )
+    ]
+    if noisy_members:
+        findings.append(f"Errors or drops were reported on switch ports: {', '.join(noisy_members)}.")
+
+    if any(unifi_lag[counter] > 0 for counter in ("rx_errors", "tx_errors", "rx_dropped", "tx_dropped")):
+        findings.append("Aggregate LAG counters show errors or drops.")
+
+    return findings
+
+
 # Compare a UniFi LAG against a Proxmox bond and print a health report
 def print_health_report(unifi_lag, proxmox_bond):
+    checks = get_health_checks(unifi_lag, proxmox_bond)
+    findings = get_health_findings(unifi_lag, proxmox_bond)
+
+    if not next(result for label, result in checks if label == "LAG is up on both sides"):
+        status = "DOWN"
+    elif all(result for _, result in checks):
+        status = "HEALTHY"
+    else:
+        status = "DEGRADED"
+
     print("=== LAG HEALTH REPORT ===")
     print()
     print(f"Switch:  {unifi_lag['switch']}    LAG {unifi_lag['lag_idx']}")
-    print(f"Bond:    {proxmox_bond['iface']}    {proxmox_bond['cidr']}")
-    print(f"Gateway: {proxmox_bond['gateway']}")
+    print(f"Bond:    {proxmox_bond['iface']}    {proxmox_bond.get('cidr', 'unassigned')}")
+    print(f"Gateway: {proxmox_bond.get('gateway', 'unassigned')}")
     print()
 
-    # run all checks
-    macs_match        = set(unifi_lag["partner_macs"]) == set(proxmox_bond["slave_macs"])
-    all_members_up    = all([member["active"] for member in unifi_lag["members"]])
-    speeds_consistent = len(set([member["speed"] for member in unifi_lag["members"]])) == 1
-    lag_is_up         = unifi_lag["up"] is True and proxmox_bond["active"] == 1
-    correct_bond_mode = proxmox_bond["mode"] == "802.3ad"
-
-    status = "HEALTHY" if all([macs_match, all_members_up, speeds_consistent, lag_is_up, correct_bond_mode]) else "DEGRADED"
     print(f"STATUS: {status}")
     print()
 
     print("CHECKS")
-    print(f"  {'[OK]' if macs_match else '[WARN]'}   MACs match on both sides")
-    print(f"  {'[OK]' if all_members_up else '[WARN]'}   All members active")
-    print(f"  {'[OK]' if speeds_consistent else '[WARN]'}   Consistent speeds across members")
-    print(f"  {'[OK]' if lag_is_up else '[WARN]'}   LAG is up on both sides")
-    print(f"  {'[OK]' if correct_bond_mode else '[WARN]'}   Bond mode is 802.3ad")
+    for label, result in checks:
+        print(f"  {'[OK]' if result else '[WARN]'}   {label}")
+    print()
+
+    print("FINDINGS")
+    if findings:
+        for finding in findings:
+            print(f"  - {finding}")
+    else:
+        print("  - No mismatches detected.")
     print()
 
     print("MEMBERS")
@@ -226,12 +315,64 @@ def print_health_report(unifi_lag, proxmox_bond):
         print(f"  Port {member['port']}   {status}   {state}   {member['speed']}Mbps")
 
 
-# --- main ---
-unifi_cookies  = get_unifi_cookie()
-unifi_data     = get_unifi_devices(unifi_cookies)
-unifi_lags     = extract_unifi_lags(unifi_data)
+def print_unmatched_lag(unifi_lag):
+    print("=== LAG HEALTH REPORT ===")
+    print()
+    print(f"Switch:  {unifi_lag['switch']}    LAG {unifi_lag['lag_idx']}")
+    print("Bond:    No matching Proxmox bond found")
+    print()
+    print("STATUS: DEGRADED")
+    print()
+    print("FINDINGS")
+    print("  - Unable to correlate this UniFi LAG to a Proxmox bond using MAC addresses.")
 
-proxmox_data   = get_proxmox_network()
-proxmox_bonds  = extract_proxmox_bonds(proxmox_data)
 
-print_health_report(unifi_lags[0], proxmox_bonds[0])
+def print_unmatched_bond(proxmox_bond):
+    print("=== LAG HEALTH REPORT ===")
+    print()
+    print(f"Bond:    {proxmox_bond['iface']}    {proxmox_bond.get('cidr', 'unassigned')}")
+    print()
+    print("STATUS: DEGRADED")
+    print()
+    print("FINDINGS")
+    print("  - This Proxmox bond did not match any UniFi LAG partner MACs.")
+
+
+def main():
+    unifi_cookies = get_unifi_cookie()
+    unifi_data = get_unifi_devices(unifi_cookies)
+    unifi_lags = extract_unifi_lags(unifi_data)
+
+    proxmox_data = get_proxmox_network()
+    proxmox_bonds = extract_proxmox_bonds(proxmox_data)
+
+    if not unifi_lags:
+        print("No UniFi LAGs were found.")
+        return
+
+    if not proxmox_bonds:
+        print("No Proxmox bonds were found.")
+        return
+
+    used_bonds = set()
+
+    for index, unifi_lag in enumerate(unifi_lags):
+        matching_bond = get_matching_bond(unifi_lag, proxmox_bonds, used_bonds)
+
+        if matching_bond is None:
+            print_unmatched_lag(unifi_lag)
+        else:
+            used_bonds.add(matching_bond["iface"])
+            print_health_report(unifi_lag, matching_bond)
+
+        if index < len(unifi_lags) - 1:
+            print()
+
+    unmatched_bonds = [bond for bond in proxmox_bonds if bond["iface"] not in used_bonds]
+    for proxmox_bond in unmatched_bonds:
+        print()
+        print_unmatched_bond(proxmox_bond)
+
+
+if __name__ == "__main__":
+    main()
