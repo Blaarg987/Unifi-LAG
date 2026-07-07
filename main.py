@@ -284,7 +284,7 @@ def print_health_report(unifi_lag, proxmox_bond):
     checks = get_health_checks(unifi_lag, proxmox_bond)
     findings = get_health_findings(unifi_lag, proxmox_bond)
 
-    if not next(result for label, result in checks if label == "LAG is up on both sides"):
+    if not next((result for label, result in checks if label == "LAG is up on both sides"), False):
         status = "DOWN"
     elif all(result for _, result in checks):
         status = "HEALTHY"
