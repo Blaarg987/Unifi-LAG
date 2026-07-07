@@ -6,6 +6,7 @@ try:
     from dotenv import load_dotenv
 except ModuleNotFoundError:
     def load_dotenv():
+        """No-op fallback for environments where python-dotenv is unavailable."""
         return False
 
 load_dotenv()
@@ -232,14 +233,14 @@ def get_health_checks(unifi_lag, proxmox_bond):
         )
     )
 
-    return [
-        ("MACs match on both sides", set(unifi_lag["partner_macs"]) == set(proxmox_bond["slave_macs"])),
-        ("All members active", all(member["active"] for member in unifi_lag["members"])),
-        ("Consistent speeds across members", len(set(member["speed"] for member in unifi_lag["members"])) == 1),
-        ("LAG is up on both sides", unifi_lag["up"] is True and proxmox_bond["active"] == 1),
-        ("Bond mode is 802.3ad", proxmox_bond["mode"] == "802.3ad"),
-        ("No errors or drops detected", no_errors),
-    ]
+    return {
+        "MACs match on both sides": set(unifi_lag["partner_macs"]) == set(proxmox_bond["slave_macs"]),
+        "All members active": all(member["active"] for member in unifi_lag["members"]),
+        "Consistent speeds across members": len(set(member["speed"] for member in unifi_lag["members"])) == 1,
+        "LAG is up on both sides": unifi_lag["up"] is True and proxmox_bond["active"] == 1,
+        "Bond mode is 802.3ad": proxmox_bond["mode"] == "802.3ad",
+        "No errors or drops detected": no_errors,
+    }
 
 
 def get_health_findings(unifi_lag, proxmox_bond):
@@ -284,9 +285,9 @@ def print_health_report(unifi_lag, proxmox_bond):
     checks = get_health_checks(unifi_lag, proxmox_bond)
     findings = get_health_findings(unifi_lag, proxmox_bond)
 
-    if not next((result for label, result in checks if label == "LAG is up on both sides"), False):
+    if not checks.get("LAG is up on both sides", False):
         status = "DOWN"
-    elif all(result for _, result in checks):
+    elif all(checks.values()):
         status = "HEALTHY"
     else:
         status = "DEGRADED"
@@ -302,7 +303,7 @@ def print_health_report(unifi_lag, proxmox_bond):
     print()
 
     print("CHECKS")
-    for label, result in checks:
+    for label, result in checks.items():
         print(f"  {'[OK]' if result else '[WARN]'}   {label}")
     print()
 
